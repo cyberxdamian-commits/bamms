@@ -24,7 +24,7 @@ export async function sendVerificationEmail(
   firstName: string,
   verificationToken: string
 ) {
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://bamms-drab.vercel.app';
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
   const verificationUrl = `${appUrl}/verify-email?token=${verificationToken}`;
 
   // Check if Resend API key is available

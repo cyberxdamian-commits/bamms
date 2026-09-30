@@ -77,13 +77,13 @@ export default function RegisterPage() {
                   </p>
                   <div className="bg-[#1A4480] p-2 rounded border border-blue-400/30 mb-3">
                     <code className="text-blue-300 text-xs break-all">
-                      {`${typeof window != 'undefined' ? window.location.origin : (process.env.NEXT_PUBLIC_APP_URL || 'https://bamms-drab.vercel.app')}/verify-email?token=${verificationToken}`}
+                      {`${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/verify-email?token=${verificationToken}`}
                     </code>
                   </div>
                   <button
                     onClick={() => {
-                      const baseUrl = typeof window !== 'undefined' ? window.location.origin : (process.env.NEXT_PUBLIC_APP_URL || 'https://bamms-drab.vercel.app');
-                      window.location.href = `${baseUrl}/verify-email?token=${verificationToken}`;
+                      const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
+                      window.location.href = `${appUrl}/verify-email?token=${verificationToken}`
                     }}
                     className="w-full text-xs bg-blue-600 hover:bg-blue-500 text-white py-2 rounded font-bold transition-all"
                   >
