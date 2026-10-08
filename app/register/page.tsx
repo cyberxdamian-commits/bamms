@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { Eye, EyeOff } from 'lucide-react'
 import { signUp } from './action'
+import { login } from '../login/action'
 import { useRouter } from 'next/navigation'
 
 export default function RegisterPage() {
@@ -12,6 +13,9 @@ export default function RegisterPage() {
   const [registeredEmail, setRegisteredEmail] = useState<string | null>(null)
   const [verificationToken, setVerificationToken] = useState<string | null>(null)
   const [showAdminCode, setShowAdminCode] = useState(false)
+  const [registeredPassword, setRegisteredPassword] = useState<string | null>(null)
+  const [verifying, setVerifying] = useState(false)
+  const [verifyError, setVerifyError] = useState<string | null>(null)
   const router = useRouter()
 
   // This fixes the TypeScript "action" error
@@ -20,16 +24,51 @@ export default function RegisterPage() {
     setError(null)
     
     const email = formData.get('email') as string
+    const password = formData.get('password') as string
     const result = await signUp(formData)
     
     if (result?.success) {
       setSuccess(true)
       setRegisteredEmail(email)
+      setRegisteredPassword(password)
       setVerificationToken(result.verification_token || null)
       setLoading(false)
     } else {
       setError(result?.error || "Something went wrong")
       setLoading(false)
+    }
+  }
+
+  // Verify with the token, then sign the user in and go straight to their dashboard
+  async function handleManualVerify() {
+    if (!verificationToken) return
+    setVerifying(true)
+    setVerifyError(null)
+    try {
+      const res = await fetch(`/api/verify-email?token=${encodeURIComponent(verificationToken)}`)
+      const data = await res.json()
+      if (!data.success) {
+        setVerifyError(data.error || 'Verification failed. Please try again.')
+        return
+      }
+
+      if (registeredEmail && registeredPassword) {
+        const fd = new FormData()
+        fd.set('email', registeredEmail)
+        fd.set('password', registeredPassword)
+        const result = await login(fd)
+        if (result && 'redirectUrl' in result && result.redirectUrl) {
+          router.push(result.redirectUrl)
+          return
+        }
+      }
+      // Auto sign-in not possible -> fall back to the login page
+      router.push('/login?verified=true')
+    } catch (err) {
+      console.error(err)
+      setVerifyError('Something went wrong while verifying. Please try again.')
+    } finally {
+      setVerifying(false)
     }
   }
 
@@ -77,18 +116,19 @@ export default function RegisterPage() {
                   </p>
                   <div className="bg-[#1A4480] p-2 rounded border border-blue-400/30 mb-3">
                     <code className="text-blue-300 text-xs break-all">
-                      {`${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/verify-email?token=${verificationToken}`}
+                      {`${window.location.origin}/verify-email?token=${verificationToken}`}
                     </code>
                   </div>
                   <button
-                    onClick={() => {
-                      const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
-                      window.location.href = `${appUrl}/verify-email?token=${verificationToken}`
-                    }}
-                    className="w-full text-xs bg-blue-600 hover:bg-blue-500 text-white py-2 rounded font-bold transition-all"
+                    onClick={handleManualVerify}
+                    disabled={verifying}
+                    className="w-full text-xs bg-blue-600 hover:bg-blue-500 text-white py-2 rounded font-bold transition-all disabled:opacity-50"
                   >
-                    Verify Email Now
+                    {verifying ? 'Verifying...' : 'Verify Email Now'}
                   </button>
+                  {verifyError && (
+                    <p className="mt-2 text-red-300 text-xs font-bold">{verifyError}</p>
+                  )}
                 </div>
               </details>
             )}
@@ -106,6 +146,9 @@ export default function RegisterPage() {
               onClick={() => {
                 setSuccess(false)
                 setRegisteredEmail(null)
+                setRegisteredPassword(null)
+                setVerificationToken(null)
+                setVerifyError(null)
               }}
               className="w-full mt-3 bg-blue-600/50 hover:bg-blue-600 text-white py-3 rounded-xl font-bold uppercase tracking-widest transition-all"
             >

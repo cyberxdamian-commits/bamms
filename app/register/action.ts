@@ -112,7 +112,15 @@ export async function signUp(formData: FormData) {
         console.warn('Email send warning:', emailResult.message);
       }
 
-      return { success: true, error: null, verification_sent: true, verification_token: verificationToken }
+      // Only hand the token to the browser as a fallback when the email did NOT go out
+      // (otherwise anyone could verify an address they don't own).
+      const emailDelivered = emailResult.success && !!process.env.RESEND_API_KEY
+      return {
+        success: true,
+        error: null,
+        verification_sent: emailDelivered,
+        verification_token: emailDelivered ? null : verificationToken,
+      }
     } catch (error) {
       console.error('Registration process error:', error)
       const errorMessage = error instanceof Error ? error.message : "An unexpected error occurred"

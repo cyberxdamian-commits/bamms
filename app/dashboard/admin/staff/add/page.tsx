@@ -72,7 +72,7 @@ export default function AddStaffPage() {
                   <p className="text-green-700 text-xs mb-2">Share this link with the staff member to verify their email:</p>
                   <div className="bg-white p-2 rounded border border-green-300">
                     <code className="text-blue-600 text-xs break-all">
-                      {`${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/verify-email?token=${verificationToken}`}
+                      {`${window.location.origin}/verify-email?token=${verificationToken}`}
                     </code>
                   </div>
                 </div>

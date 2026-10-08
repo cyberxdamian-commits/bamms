@@ -1,0 +1,184 @@
+diff --git a/app/dashboard/admin/staff/add/page.tsx b/app/dashboard/admin/staff/add/page.tsx
+index 9c3e0ca..cf3960b 100644
+--- a/app/dashboard/admin/staff/add/page.tsx
++++ b/app/dashboard/admin/staff/add/page.tsx
+@@ -72,7 +72,7 @@ export default function AddStaffPage() {
+                   <p className="text-green-700 text-xs mb-2">Share this link with the staff member to verify their email:</p>
+                   <div className="bg-white p-2 rounded border border-green-300">
+                     <code className="text-blue-600 text-xs break-all">
+-                      {`${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/verify-email?token=${verificationToken}`}
++                      {`${window.location.origin}/verify-email?token=${verificationToken}`}
+                     </code>
+                   </div>
+                 </div>
+diff --git a/app/register/action.ts b/app/register/action.ts
+index 4d2ad5e..c5bac80 100644
+--- a/app/register/action.ts
++++ b/app/register/action.ts
+@@ -112,7 +112,15 @@ export async function signUp(formData: FormData) {
+         console.warn('Email send warning:', emailResult.message);
+       }
+ 
+-      return { success: true, error: null, verification_sent: true, verification_token: verificationToken }
++      // Only hand the token to the browser as a fallback when the email did NOT go out
++      // (otherwise anyone could verify an address they don't own).
++      const emailDelivered = emailResult.success && !!process.env.RESEND_API_KEY
++      return {
++        success: true,
++        error: null,
++        verification_sent: emailDelivered,
++        verification_token: emailDelivered ? null : verificationToken,
++      }
+     } catch (error) {
+       console.error('Registration process error:', error)
+       const errorMessage = error instanceof Error ? error.message : "An unexpected error occurred"
+diff --git a/app/register/page.tsx b/app/register/page.tsx
+index bca3f71..1689894 100644
+--- a/app/register/page.tsx
++++ b/app/register/page.tsx
+@@ -3,6 +3,7 @@
+ import { useState } from 'react'
+ import { Eye, EyeOff } from 'lucide-react'
+ import { signUp } from './action'
++import { login } from '../login/action'
+ import { useRouter } from 'next/navigation'
+ 
+ export default function RegisterPage() {
+@@ -12,6 +13,9 @@ export default function RegisterPage() {
+   const [registeredEmail, setRegisteredEmail] = useState<string | null>(null)
+   const [verificationToken, setVerificationToken] = useState<string | null>(null)
+   const [showAdminCode, setShowAdminCode] = useState(false)
++  const [registeredPassword, setRegisteredPassword] = useState<string | null>(null)
++  const [verifying, setVerifying] = useState(false)
++  const [verifyError, setVerifyError] = useState<string | null>(null)
+   const router = useRouter()
+ 
+   // This fixes the TypeScript "action" error
+@@ -20,11 +24,13 @@ export default function RegisterPage() {
+     setError(null)
+     
+     const email = formData.get('email') as string
++    const password = formData.get('password') as string
+     const result = await signUp(formData)
+     
+     if (result?.success) {
+       setSuccess(true)
+       setRegisteredEmail(email)
++      setRegisteredPassword(password)
+       setVerificationToken(result.verification_token || null)
+       setLoading(false)
+     } else {
+@@ -33,6 +39,39 @@ export default function RegisterPage() {
+     }
+   }
+ 
++  // Verify with the token, then sign the user in and go straight to their dashboard
++  async function handleManualVerify() {
++    if (!verificationToken) return
++    setVerifying(true)
++    setVerifyError(null)
++    try {
++      const res = await fetch(`/api/verify-email?token=${encodeURIComponent(verificationToken)}`)
++      const data = await res.json()
++      if (!data.success) {
++        setVerifyError(data.error || 'Verification failed. Please try again.')
++        return
++      }
++
++      if (registeredEmail && registeredPassword) {
++        const fd = new FormData()
++        fd.set('email', registeredEmail)
++        fd.set('password', registeredPassword)
++        const result = await login(fd)
++        if (result && 'redirectUrl' in result && result.redirectUrl) {
++          router.push(result.redirectUrl)
++          return
++        }
++      }
++      // Auto sign-in not possible -> fall back to the login page
++      router.push('/login?verified=true')
++    } catch (err) {
++      console.error(err)
++      setVerifyError('Something went wrong while verifying. Please try again.')
++    } finally {
++      setVerifying(false)
++    }
++  }
++
+   if (success) {
+     return (
+       <div className="min-h-screen bg-gradient-to-br from-[#1A4480] via-[#1a3a60] to-[#0f2344] flex items-center justify-center p-4 font-sans">
+@@ -77,18 +116,19 @@ export default function RegisterPage() {
+                   </p>
+                   <div className="bg-[#1A4480] p-2 rounded border border-blue-400/30 mb-3">
+                     <code className="text-blue-300 text-xs break-all">
+-                      {`${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/verify-email?token=${verificationToken}`}
++                      {`${window.location.origin}/verify-email?token=${verificationToken}`}
+                     </code>
+                   </div>
+                   <button
+-                    onClick={() => {
+-                      const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
+-                      window.location.href = `${appUrl}/verify-email?token=${verificationToken}`
+-                    }}
+-                    className="w-full text-xs bg-blue-600 hover:bg-blue-500 text-white py-2 rounded font-bold transition-all"
++                    onClick={handleManualVerify}
++                    disabled={verifying}
++                    className="w-full text-xs bg-blue-600 hover:bg-blue-500 text-white py-2 rounded font-bold transition-all disabled:opacity-50"
+                   >
+-                    Verify Email Now
++                    {verifying ? 'Verifying...' : 'Verify Email Now'}
+                   </button>
++                  {verifyError && (
++                    <p className="mt-2 text-red-300 text-xs font-bold">{verifyError}</p>
++                  )}
+                 </div>
+               </details>
+             )}
+@@ -106,6 +146,9 @@ export default function RegisterPage() {
+               onClick={() => {
+                 setSuccess(false)
+                 setRegisteredEmail(null)
++                setRegisteredPassword(null)
++                setVerificationToken(null)
++                setVerifyError(null)
+               }}
+               className="w-full mt-3 bg-blue-600/50 hover:bg-blue-600 text-white py-3 rounded-xl font-bold uppercase tracking-widest transition-all"
+             >
+diff --git a/lib/config/environment.ts b/lib/config/environment.ts
+index b24a555..cd350fb 100644
+--- a/lib/config/environment.ts
++++ b/lib/config/environment.ts
+@@ -54,5 +54,12 @@ export function getSupabaseServiceRoleKey(): string {
+ }
+ 
+ export function getAppUrl(): string {
+-  return process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
++  // 1) explicit setting, 2) Vercel production domain, 3) Vercel deployment URL, 4) local dev
++  const explicit = process.env.NEXT_PUBLIC_APP_URL;
++  if (explicit) return explicit.replace(/\/+$/, '');
++  const vercelProd = process.env.VERCEL_PROJECT_PRODUCTION_URL;
++  if (vercelProd) return `https://${vercelProd}`;
++  const vercelUrl = process.env.VERCEL_URL;
++  if (vercelUrl) return `https://${vercelUrl}`;
++  return 'http://localhost:3000';
+ }
+diff --git a/lib/email/emailService.ts b/lib/email/emailService.ts
+index 9a2a726..33d7f5b 100644
+--- a/lib/email/emailService.ts
++++ b/lib/email/emailService.ts
+@@ -1,4 +1,5 @@
+ import crypto from 'crypto';
++import { getAppUrl } from '@/lib/config/environment';
+ 
+ /**
+  * Generate a secure random verification token
+@@ -24,7 +25,7 @@ export async function sendVerificationEmail(
+   firstName: string,
+   verificationToken: string
+ ) {
+-  const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
++  const appUrl = getAppUrl();
+   const verificationUrl = `${appUrl}/verify-email?token=${verificationToken}`;
+ 
+   // Check if Resend API key is available
