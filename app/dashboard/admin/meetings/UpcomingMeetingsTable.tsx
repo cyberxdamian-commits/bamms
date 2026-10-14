@@ -39,9 +39,29 @@ export default function UpcomingMeetingsTable({
   }, [meetings]);
 
   const handleStatusChange = async (id: string, newStatus: string) => {
-    const result = await updateMeeting(id, { status: newStatus });
-    if (result.success) {
-      onRefresh();
+    setError(null);
+    const previous = localMeetings;
+
+    // Show the new status immediately
+    setLocalMeetings((prev) =>
+      prev.map((m) =>
+        m.id === id ? { ...m, status: newStatus as Meeting['status'] } : m
+      )
+    );
+
+    try {
+      const result = await updateMeeting(id, { status: newStatus });
+      if (result.success) {
+        onRefresh();
+      } else {
+        // Roll back and show the real reason instead of silently snapping back
+        setLocalMeetings(previous);
+        setError(result.error || 'Failed to update meeting status');
+      }
+    } catch (err) {
+      console.error('Status update error:', err);
+      setLocalMeetings(previous);
+      setError('An error occurred while updating the meeting status');
     }
   };
 

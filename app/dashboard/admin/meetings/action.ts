@@ -3,6 +3,19 @@
 import { createClient } from '@/lib/supabase/server';
 import { revalidatePath } from 'next/cache';
 
+// Supabase errors are plain objects (not `Error` instances), so `error instanceof Error`
+// was always false and hid the real reason. This pulls out the useful message.
+function toErrorMessage(err: unknown, fallback: string): string {
+  if (err instanceof Error) return err.message;
+  if (err && typeof err === 'object') {
+    const e = err as { message?: string; details?: string; hint?: string; code?: string };
+    if (e.message) {
+      return e.code ? `${e.message} (code ${e.code})` : e.message;
+    }
+  }
+  return fallback;
+}
+
 interface CreateMeetingData {
   title: string;
   date: string;
@@ -55,7 +68,7 @@ export async function createMeeting(data: CreateMeetingData) {
     revalidatePath('/dashboard/admin/meetings');
     return { success: true, data: meeting };
   } catch (error) {
-    return { success: false, error: error instanceof Error ? error.message : 'Failed to create meeting' };
+    return { success: false, error: toErrorMessage(error, 'Failed to create meeting') };
   }
 }
 
@@ -71,7 +84,7 @@ export async function getMeetings() {
     if (error) throw error;
     return { success: true, data };
   } catch (error) {
-    return { success: false, error: error instanceof Error ? error.message : 'Failed to fetch meetings' };
+    return { success: false, error: toErrorMessage(error, 'Failed to fetch meetings') };
   }
 }
 
@@ -85,16 +98,26 @@ export async function updateMeeting(id: string, data: UpdateMeetingData) {
       updateData.completed_at = new Date().toISOString();
     }
     
-    const { error } = await supabase
+    const { data: updated, error } = await supabase
       .from('meetings')
       .update(updateData)
-      .eq('id', id);
+      .eq('id', id)
+      .select('id');
 
     if (error) throw error;
+
+    // Supabase returns no error when Row Level Security blocks an update - it just
+    // updates 0 rows. Treat that as a failure so the UI doesn't pretend it worked.
+    if (!updated || updated.length === 0) {
+      throw new Error(
+        'No meeting was updated. Row Level Security is probably blocking updates on the meetings table.'
+      );
+    }
+
     revalidatePath('/dashboard/admin/meetings');
     return { success: true };
   } catch (error) {
-    return { success: false, error: error instanceof Error ? error.message : 'Failed to update meeting' };
+    return { success: false, error: toErrorMessage(error, 'Failed to update meeting') };
   }
 }
 
@@ -154,7 +177,7 @@ export async function deleteMeeting(id: string) {
     
     return { success: true };
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Failed to delete meeting';
+    const errorMessage = toErrorMessage(error, 'Failed to delete meeting');
     console.error('Delete meeting error:', errorMessage, error);
     return { success: false, error: errorMessage };
   }
@@ -178,7 +201,7 @@ export async function addMeetingAttendee(meetingId: string, staffId: string) {
     revalidatePath('/dashboard/admin/meetings');
     return { success: true, data };
   } catch (error) {
-    return { success: false, error: error instanceof Error ? error.message : 'Failed to add attendee' };
+    return { success: false, error: toErrorMessage(error, 'Failed to add attendee') };
   }
 }
 
@@ -245,7 +268,7 @@ export async function getMeetingAttendees(meetingId: string) {
     return { success: true, data: formattedAttendees };
   } catch (error) {
     console.error('getMeetingAttendees error:', error);
-    return { success: false, error: error instanceof Error ? error.message : 'Failed to fetch attendees' };
+    return { success: false, error: toErrorMessage(error, 'Failed to fetch attendees') };
   }
 }
 
@@ -268,7 +291,7 @@ export async function removeMeetingAttendee(attendeeId: string) {
     revalidatePath('/dashboard/admin/meetings');
     return { success: true };
   } catch (error) {
-    return { success: false, error: error instanceof Error ? error.message : 'Failed to remove attendee' };
+    return { success: false, error: toErrorMessage(error, 'Failed to remove attendee') };
   }
 }
 
@@ -276,12 +299,15 @@ export async function saveMeetingMinutes(meetingId: string, notes: string) {
   const supabase = await createClient();
 
   try {
-    // Check if minutes already exist for this meeting
-    const { data: existingMinutes } = await supabase
+    // Check if minutes already exist for this meeting (maybeSingle => no error when 0 rows)
+    const { data: existingMinutes, error: lookupError } = await supabase
       .from('meeting_minutes')
       .select('id')
       .eq('meeting_id', meetingId)
-      .single();
+      .limit(1)
+      .maybeSingle();
+
+    if (lookupError) throw lookupError;
 
     if (existingMinutes) {
       // Update existing minutes
@@ -314,7 +340,7 @@ export async function saveMeetingMinutes(meetingId: string, notes: string) {
     return { success: true };
   } catch (error) {
     console.error('Error saving meeting minutes:', error);
-    return { success: false, error: error instanceof Error ? error.message : 'Failed to save meeting minutes' };
+    return { success: false, error: toErrorMessage(error, 'Failed to save meeting minutes') };
   }
 }
 
@@ -333,6 +359,6 @@ export async function getMeetingMinutes(meetingId: string) {
     return { success: true, data: data || null };
   } catch (error) {
     console.error('Error fetching meeting minutes:', error);
-    return { success: false, error: error instanceof Error ? error.message : 'Failed to fetch meeting minutes' };
+    return { success: false, error: toErrorMessage(error, 'Failed to fetch meeting minutes') };
   }
 }
